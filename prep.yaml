@@ -1,0 +1,262 @@
+---
+- hosts: all
+  tasks:
+  - name: Upgrade all packages
+    dnf:
+      name: "*"
+      state: latest
+      exclude:
+      - cri-o
+      - kubeadm
+      - kubectl
+      - kubelet
+
+  # I encountered serious cluster stability / operability
+  # issues with firewalld enabled.
+  - name: Make sure firewalld not installed
+    dnf:
+      name: firewalld
+      state: absent
+
+  - name: Make sure nfs-utils installed
+    dnf:
+      name: nfs-utils
+      state: present
+  - name: Make sure root can run local utils
+    lineinfile:
+      path: /root/.bashrc
+      line: "export PATH=$PATH:/usr/local/bin"
+      regexp: '^export PATH=.*'
+
+  # Load required modules for cri-o
+  - name: Load the overlay module
+    modprobe:
+      name: overlay
+      state: present
+  - name: Make sure overlay loads at boot
+    copy:
+      dest: /etc/modules-load.d/overlay.conf
+      content: |
+       # load overlay
+       overlay
+  - name: Load the br_netfilter module
+    modprobe:
+      name: br_netfilter
+      state: present
+  - name: Make sure br_netfilter loads at boot
+    copy:
+      dest: /etc/modules-load.d/br_netfilter.conf
+      content: |
+       # load br_netfilter
+       br_netfilter
+
+  # Set required sysctl params for cri-o
+  - name: Make sure iptables sees bridged traffic
+    sysctl:
+      name: net.bridge.bridge-nf-call-iptables
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+  - name: Make sure ip6tables sees bridged traffic
+    sysctl:
+      name: net.bridge.bridge-nf-call-ip6tables
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+  - name: Enable IP Forwarding
+    sysctl:
+      name: net.ipv4.ip_forward
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+  # Currently required by kubernetes
+  - name: Put SELinux in permissive mode, logging actions that would be blocked.
+    selinux:
+      policy: targeted
+      state: permissive
+
+  # Set up CentOS 8 repositories for cri-o and kubernetes
+  - name: Add kubic signing key
+    rpm_key:
+      key: https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/CentOS_8/repodata/repomd.xml.key
+  - name: Add kubic libcontainers repo
+    get_url:
+      url: https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/CentOS_8/devel:kubic:libcontainers:stable.repo
+      dest: /etc/yum.repos.d/devel:kubic:libcontainers:stable.repo
+  - name: Add kubic cri-o repo
+    get_url:
+      url: "https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:{{ crio_minor_version }}/CentOS_8/devel:kubic:libcontainers:stable:cri-o:{{ crio_minor_version }}.repo"
+      dest: "/etc/yum.repos.d/devel:kubic:libcontainers:stable:cri-o.repo"
+  - name: Add kubernetes rpm key
+    rpm_key:
+      key: https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+  - name: Add kubernetes yum key
+    rpm_key:
+      key: https://packages.cloud.google.com/yum/doc/yum-key.gpg
+  - name: Add kubernetes repo
+    copy:
+      dest: /etc/yum.repos.d/kubernetes.repo
+      content: |
+        [kubernetes]
+        name=Kubernetes
+        baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+        enabled=1
+        gpgcheck=1
+        repo_gpgcheck=1
+        gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+        exclude=kubelet kubeadm
+
+  - name: Install cri-o, kubelet, kubeadm and other supporting packages
+    dnf:
+      disable_excludes: kubernetes
+      name:
+      - cri-o-{{ crio_version }}
+      - kubelet-{{ kubelet_rpm_version }}
+      - kubeadm-{{ kubeadm_rpm_version }}
+      - kubectl-{{ kubectl_rpm_version }}
+      - bash-completion
+
+  # /dev/fuse is required for building containers inside
+  # containers using buildah/podman.
+  - name: Add /dev/fuse to container devices
+    lineinfile:
+      path: /etc/crio/crio.conf
+      line: '  "/dev/fuse",'
+      regexp: '/dev/fuse'
+      insertafter: "^additional_devices"
+  # Note: this doesn't appear to be in the official docs at kubernetes.io,
+  # but is referenced in the cri-o docs and elsewhere.
+  - name: Make sure kubelet has args for cri-o
+    lineinfile:
+      path: /etc/sysconfig/kubelet
+      line: >
+        KUBELET_EXTRA_ARGS=--feature-gates="AllAlpha=false,RunAsGroup=true"
+        --container-runtime=remote --cgroup-driver=systemd
+        --container-runtime-endpoint='unix:///var/run/crio/crio.sock'
+        --runtime-request-timeout=5m
+      regexp: '^KUBELET_EXTRA_ARGS'
+
+  - name: Make sure cri-o is running
+    systemd:
+      name: crio
+      state: started
+      enabled: yes
+  - name: Make sure kubelet is running
+    systemd:
+      name: kubelet
+      state: started
+      enabled: yes
+  - name: Directory for cri-o systemd config
+    file:
+      path: /etc/systemd/system/crio.service.d
+      state: directory
+      mode: 0755
+  - name: Set up start dependency
+    copy:
+      dest: /etc/systemd/system/crio.service.d/override.conf
+      mode: 0644
+      content: |
+        [Unit]
+        Before=kubelet.service
+
+  - name: Add IP for master/HA float to /etc/hosts
+    lineinfile:
+      path: /etc/hosts
+      line: "{{ k8s_master_vip }} {{ k8s_master_hostname }}"
+
+  # Local tasks
+  - name: Run local tasks
+    # import_playbook: "inventory/local/local.yaml"
+    include_tasks: "{{ item }}"
+    with_first_found:
+    - files:
+      - "inventory/local/local.yaml"
+      skip: true
+
+- hosts: control_plane
+  tasks:
+
+  - name: Create kubeadm config
+    copy:
+      dest: /root/kubeadm-config.yaml
+      content: |
+        apiVersion: kubeadm.k8s.io/v1beta2
+        kind: ClusterConfiguration
+        kubernetesVersion: {{ k8s_version }}
+        controlPlaneEndpoint: "{{ k8s_master_hostname }}:{{ k8s_master_port }}"
+        networking:
+          podSubnet: {{ k8s_pods_subnet }}
+          serviceSubnet: {{ k8s_service_subnet }}
+        ---
+        apiVersion: kubelet.config.k8s.io/v1beta1
+        kind: KubeletConfiguration
+        cgroupDriver: systemd
+        ---
+        # Required for MetalLB
+        apiVersion: kubeproxy.config.k8s.io/v1alpha1
+        kind: KubeProxyConfiguration
+        mode: "ipvs"
+        ipvs:
+          strictARP: true
+  - name: Create calico.yaml
+    template:
+      src: calico.j2
+      dest: /home/calico.yaml
+      mode: 0644
+  - name: Install calicoctl
+    get_url:
+      url: https://github.com/projectcalico/calicoctl/releases/download/v3.17.1/calicoctl
+      dest: /usr/local/bin/calicoctl
+      mode: 0755
+  - name: Create metallb.yaml
+    copy:
+      dest: /home/metallb.yaml
+      mode: 0644
+      content: |
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          namespace: metallb-system
+          name: config
+        data:
+          config: |
+            address-pools:
+            - name: default
+              protocol: layer2
+              addresses:
+              - {{ metal_range_start }}-{{ metal_range_end }}
+
+  - name: Install HA Packages
+    dnf:
+      name:
+      - keepalived
+      - haproxy
+
+  - name: Configure keepalived
+    template:
+      src: keepalived.j2
+      dest: /etc/keepalived/keepalived.conf
+  - name: Check script for keepalived
+    template:
+      src: check_apiserver.j2
+      dest: /etc/keepalived/check_apiserver.sh
+      mode: 0755
+  - name: Configure haproxy
+    template:
+      src: haproxy.j2
+      dest: /etc/haproxy/haproxy.cfg
+
+  - name: Make sure keepalived is running
+    systemd:
+      name: keepalived
+      state: started
+      enabled: yes
+  - name: Make sure haproxy is running
+    systemd:
+      name: haproxy
+      state: started
+      enabled: yes

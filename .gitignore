@@ -1,0 +1,4 @@
+group_vars/all/*
+!group_vars/all/README.md
+ansible.cfg
+inventory/local

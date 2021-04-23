@@ -1,0 +1,20 @@
+all:
+  hosts:
+    controller1:
+      ansible_host: 10.10.10.12
+    controller2:
+      ansible_host: 10.10.10.13
+    controller3:
+      ansible_host: 10.10.10.14
+    worker1:
+      ansible_host: 10.10.10.15
+    worker2:
+      ansible_host: 10.10.10.16
+    worker3:
+      ansible_host: 10.10.10.17
+  children:
+    control_plane:
+      hosts:
+        controller1:
+        controller2:
+        controller3:

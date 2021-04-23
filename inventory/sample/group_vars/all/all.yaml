@@ -1,0 +1,41 @@
+# All of these can be overriden by placing yaml files in the
+# top-level playbook group_vars/all/ directory. You should
+# definitely create a "secrets.yaml" file there to hold all
+# the secret values.
+
+# Versions
+k8s_version: "1.20.5"
+crio_minor_version: "1.20"
+crio_version: "1.20.2"
+kubelet_rpm_version: "1.20.5"
+kubeadm_rpm_version: "1.20.5"
+kubectl_rpm_version: "1.20.5"
+
+# For /etc/hosts only, everything else should reference the VIP hostname;
+# VIP address for keepalived
+k8s_master_vip: 10.10.10.6
+# For /etc/hosts
+k8s_master_hostname: k8smaster
+# Port for HA/Loadbalanced API service
+k8s_master_port: 7443
+k8s_service_subnet: 10.42.0.0/18
+k8s_pods_subnet: 10.42.64.0/18
+
+# MetalLB Configuration
+metal_range_start: 10.10.10.100
+metal_range_end: 10.10.10.104
+
+# keepalived configuration
+keepalived_vip_master: controller1
+keepalived_router_id: 42
+
+# "secret" values - you should override these in playbook
+# /group_vars/all/secrets.yaml
+keepalived_cluster_password: passw123
+
+# Stuff below here mainly serves to document changes from defaults
+
+# Calico Configuration
+calico_mtu: 1500
+calico_enable_ipip: Never
+calico_iptables_backend: NFT

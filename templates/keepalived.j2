@@ -1,0 +1,29 @@
+! /etc/keepalived/keepalived.conf
+! Configuration File for keepalived
+global_defs {
+    router_id LVS_DEVEL
+}
+vrrp_script check_apiserver {
+  script "/etc/keepalived/check_apiserver.sh"
+  interval 3
+  weight -2
+  fall 10
+  rise 2
+}
+
+vrrp_instance VI_1 {
+    state {% if inventory_hostname == keepalived_vip_master -%} MASTER{%- else -%} BACKUP{%- endif -%}{{''}}
+    interface {{ ansible_default_ipv4.interface }}
+    virtual_router_id {{ keepalived_router_id }}
+    priority state {% if inventory_hostname == keepalived_vip_master -%} 101{% else -%} 100{% endif %}{{''}}
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_cluster_password }}
+    }
+    virtual_ipaddress {
+        {{ k8s_master_vip }}
+    }
+    track_script {
+        check_apiserver
+    }
+}
