@@ -151,7 +151,7 @@
   - name: Add IP for master/HA float to /etc/hosts
     lineinfile:
       path: /etc/hosts
-      line: "{{ k8s_master_vip }} {{ k8s_master_hostname }}"
+      line: "{{ k8s_api_vip }} {{ k8s_api_hostname }}"
 
   # Local tasks
   - name: Run local tasks
@@ -172,7 +172,7 @@
         apiVersion: kubeadm.k8s.io/v1beta2
         kind: ClusterConfiguration
         kubernetesVersion: {{ k8s_version }}
-        controlPlaneEndpoint: "{{ k8s_master_hostname }}:{{ k8s_master_port }}"
+        controlPlaneEndpoint: "{{ k8s_api_hostname }}:{{ k8s_api_port }}"
         networking:
           podSubnet: {{ k8s_pods_subnet }}
           serviceSubnet: {{ k8s_service_subnet }}

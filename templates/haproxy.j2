@@ -32,7 +32,7 @@ defaults
 # apiserver frontend which proxys to the masters
 #---------------------------------------------------------------------
 frontend apiserver
-    bind *:{{ k8s_master_port }}
+    bind *:{{ k8s_api_port }}
     mode tcp
     option tcplog
     default_backend apiserver

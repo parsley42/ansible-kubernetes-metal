@@ -17,7 +17,7 @@ If all or most of the above is true, just reading the `prep.yaml` playbook and s
 
 ## Structure and Description
 
-This repository is centered around the idea of building and configuring kubernetes cluster-ready nodes using `ansible`, without running any `kubeadm` commands for initializing the cluster or joining nodes. Once the master and worker nodes have been installed and configured, the cluster administrator should use `kubeadm` manually (documented below) for these tasks.
+This repository is centered around the idea of building and configuring kubernetes cluster-ready nodes using `ansible`, without running any `kubeadm` commands for initializing the cluster or joining nodes. Once the controller and worker nodes have been installed and configured, the cluster administrator should use `kubeadm` manually (documented below) for these tasks.
 
 The specialized `template.ks` and `prep.yaml` are tailored for a bare-metal cluster on CentOS 8 Stream, using the cri-o container runtime and Calico network driver. Other details:
 
@@ -46,13 +46,13 @@ Each cluster node needs to be installed with CentOS 8, with no swap. The templat
 
 ### 1 - Set up the Inventory, Group Vars, and local.yaml
 
-All cluster nodes should be listed in `inventory/home/hosts.yaml`, with control-plane nodes listed in the `kube-master` group. If you create your own inventory, you might want to edit `ansible.cfg` to reflect this, since the instructions below don't specify the inventory to use.
+All cluster nodes should be listed in `inventory/home/hosts.yaml`, with control-plane nodes listed in the `control_plane` group. If you create your own inventory, you might want to edit `ansible.cfg` to reflect this, since the instructions below don't specify the inventory to use.
 
 The variables for this playbook are all defined in two locations:
 * `inventory/home/group_vars/all/all.yaml`, for standard non-sensitive values
 * `group_vars/all/secrets.yaml` - a file that you should supply to override secret values in the inventory file
 
-Examine and update the vars per your local configuration. Note that `k8s_master_vip` should be set to the value for the floating VIP; an IP from the local subnet not assigned to any physical node.
+Examine and update the vars per your local configuration. Note that `k8s_api_vip` should be set to the value for the floating VIP; an IP from the local subnet not assigned to any physical node.
 
 ### 2 - Prep the Nodes
 
@@ -65,9 +65,9 @@ $ ansible-playbook prep.yaml
 
 ### 3 - Running kubeadm init
 
-With all the nodes installed and prepped, you can log in to the first master node, sudo to root, and initialize the cluster:
+With all the nodes installed and prepped, you can log in to the first controller node, sudo to root, and initialize the cluster:
 ```
-$ ssh bootstrap@master1
+$ ssh bootstrap@controller1
 $ sudo su
 # cd
 # kubeadm init --config=kubeadm-config.yaml --upload-certs | tee kubeadm-init.out
@@ -99,8 +99,8 @@ First - wait for all the Calico pods to progress to status: Running. Calico need
 
 I don't know if this is a known issue, but when the cluster was first created pods were not able to resolve DNS. Examining the running pods, several had IP addresses outside the configured range; example:
 ```
-kube-system   calico-kube-controllers-854c58bf56-2km8x      1/1     Running   0          7h2m    10.85.0.4        master1.localdomain   <none>           <none>
-kube-system   coredns-66bff467f8-njls2                      1/1     Running   0          4m11s   10.85.0.2        master2.localdomain   <none>           <none>
+kube-system   calico-kube-controllers-854c58bf56-2km8x      1/1     Running   0          7h2m    10.85.0.4        controller1.localdomain   <none>           <none>
+kube-system   coredns-66bff467f8-njls2                      1/1     Running   0          4m11s   10.85.0.2        controller2.localdomain   <none>           <none>
 kube-system   coredns-66bff467f8-pvd67                      1/1     Running   0          4m29s   10.85.0.3        worker1.localdomain   <none>           <none>
 ```
 
@@ -110,32 +110,32 @@ After deleting these pods and letting them re-create, they all came up with prop
 
 With the cluster essentially running, now you can add a worker node using the commands shown at the end of `kubeadm-init.out`; e.g.:
 ```
-kubeadm join k8smaster:7443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
+kubeadm join k8sapi:7443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
 ```
 
-> Note that the above command assumes you kept the default values for `k8s_master_hostname` (k8smaster), and `k8s_master_port` (7443); you'll need to modify the command you used if you changed these values - the output from `kubeadm init` should be correct.
+> Note that the above command assumes you kept the default values for `k8s_api_hostname` (k8sapi), and `k8s_api_port` (7443); you'll need to modify the command you used if you changed these values - the output from `kubeadm init` should be correct.
 
 If the token has expired, you can create a new one with `kubeadm token create`; the cert hash is the same.
 
 ### 8 - Adding a Control Plane Node
 
-To expand the control plane on inventory hosts listed as `master`, use the command for adding control plane nodes given in `kubeadm-init.out`:
+To expand the control plane on inventory hosts listed as `controller`, use the command for adding control plane nodes given in `kubeadm-init.out`:
 
 ```
-# kubeadm join k8smaster:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash> --control-plane --certificate-key <certificate-key>
+# kubeadm join k8sapi:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash> --control-plane --certificate-key <certificate-key>
 ```
 
-> Note that the above command assumes you kept the default values for `k8s_master_hostname` (k8smaster), and `k8s_master_port` (7443); you'll need to modify the command you used if you changed these values - the output from `kubeadm init` should be correct.
+> Note that the above command assumes you kept the default values for `k8s_api_hostname` (k8sapi), and `k8s_api_port` (7443); you'll need to modify the command you used if you changed these values - the output from `kubeadm init` should be correct.
 
-If the token and/or certificate key have expired, this command may just hang instead of giving an error message. To generate new items from the first master node:
+If the token and/or certificate key have expired, this command may just hang instead of giving an error message. To generate new items from the first controller node:
 * Token: `kubeadm token create` (command hangs)
 * Certificate key: `kubeadm init phase upload-certs --upload-certs` (error message)
 
-### 9 - (Optional) Remove Master Node Taints
+### 9 - (Optional) Remove Controller Node Taints
 
 For small clusters that should allow workloads to run on control-plane nodes, you can remove the taints:
 ```
-$ kubectl taint nodes --all node-role.kubernetes.io/master-
+$ kubectl taint nodes --all node-role.kubernetes.io/controller-
 ```
 
 ## Upgrading the Cluster

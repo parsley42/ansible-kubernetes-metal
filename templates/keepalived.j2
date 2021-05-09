@@ -21,7 +21,7 @@ vrrp_instance VI_1 {
         auth_pass {{ keepalived_cluster_password }}
     }
     virtual_ipaddress {
-        {{ k8s_master_vip }}
+        {{ k8s_api_vip }}
     }
     track_script {
         check_apiserver
