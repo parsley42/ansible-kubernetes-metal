@@ -3,14 +3,13 @@
 > NOTE: this repository is not end-user ready, and may never be! It would probably be pretty easy to adapt it to your needs, though. Mainly I wanted a place to keep all my code for managing my own Kubernetes cluster at home, but I went ahead and made it public and scrubbed out anything sensitive, and partially separated out local configuration, in case others might find it useful.
 
 Keep reading if you'd like to build your own kubernetes cluster meeting this description:
-* Runs on CentOS 8 nodes for control plane and workers, minimum of three nodes
+* Runs on CentOS 8 Stream nodes for control plane and workers, minimum of three nodes
 * Has three control-plane nodes configured for HA:
    * Each control-plane node runs `keepalived` to manage the api server VIP
    * Each control-plane node runs `haproxy` for distributing load across the api servers
 * Runs on bare metal nodes (may work just fine on VMs, but untested)
 * Uses [cri-o](https://cri-o.io/) as the container runtime
 * Uses [calico](https://www.projectcalico.org/) for cluster networking
-* Uses [MetalLB](https://metallb.universe.tf/) for a local layer2 software loadbalancer
 
 > In the parlance of the [kubernetes documentation](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/), this is a Highly Available cluster with stacked control plane nodes.
 
@@ -20,7 +19,7 @@ If all or most of the above is true, just reading the `prep.yaml` playbook and s
 
 This repository is centered around the idea of building and configuring kubernetes cluster-ready nodes using `ansible`, without running any `kubeadm` commands for initializing the cluster or joining nodes. Once the master and worker nodes have been installed and configured, the cluster administrator should use `kubeadm` manually (documented below) for these tasks.
 
-The specialized `template.ks` and `prep.yaml` are tailored for a bare-metal cluster on CentOS 8, using the cri-o container runtime and Calico network driver. Other details:
+The specialized `template.ks` and `prep.yaml` are tailored for a bare-metal cluster on CentOS 8 Stream, using the cri-o container runtime and Calico network driver. Other details:
 
 * Calico is configured with the "50 nodes or less" manifest
 * "IPIP" is disabled, and MTU is set to 1500 -> highest performance for L2-connected nodes
@@ -30,9 +29,8 @@ There are two primary parts / steps for cluster builds:
 * the `prep.yaml` ansible playbook performs all the basic configuration required for a cluster node:
   * installation of `cri-o` and required configuration
   * installs kubernetes binaries `kubeadm`, `kubectl` and `kubelet`
-  * creates `/root/kubeadm-config.yaml` for use with `kubeadm init`
+  * creates `/root/kubeadm-config.yaml` for use with `kubeadm init`; note that there is custom configuration for compatibility with MetalLB
   * creates `/home/calico.yaml` to add the calico network driver
-  * creates `/home/metallb.yaml` for MetalLB configuration
 * the remainder of cluster operations, including initializing the cluster and adding nodes, is done with `kubeadm` and `kubectl`
 
 # Other Documentatation
@@ -139,54 +137,6 @@ For small clusters that should allow workloads to run on control-plane nodes, yo
 ```
 $ kubectl taint nodes --all node-role.kubernetes.io/master-
 ```
-
-### 10 - Add the MetalLB Software Load Balancer
-
-[MetalLB](https://metallb.universe.tf/) is very similar to `keepalived`, and probably the best-known software loadbalancer for Kubernetes bare-metal installs. The `prep.yaml` playbook creates a `/home/metallb.yaml` to configure a loadbalancer opering in layer2 mode.
-
-The ansible-provided `kubeadm-config.yaml` already configures `kube-proxy` in "ipvs" mode with "strictARP: true", so you can proceed straight to installation. From the website, here's how you can install by manifest:
-```
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.4/manifests/namespace.yaml
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.4/manifests/metallb.yaml
-# On first install only
-kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
-```
-
-Once installed, you can configure MetalLB by applying the generated `metallb.yaml`:
-```
-$ kubectl apply -f /home/metallb.yaml
-configmap/config created
-```
-
-### 11 - Configure Longhorn Cluster Storage
-
-[Longhorn](https://longhorn.io/), originally created by [Rancher Labs](https://rancher.com/), is one of the easier resilient cluster storage solutions.
-
-#### 11a - Label storage nodes
-
-In a small cluster of only a few permanent nodes, you can label them all for storage:
-```
-$ kubectl label nodes --all node.longhorn.io/create-default-disk=true
-```
-
-#### 11b - Install with Helm
-
-This repository includes an appropriate `longhorn-values.yaml` for use with helm 3:
-```
-$ cd ..
-$ git clone https://github.com/longhorn/longhorn
-$ kubectl create namespace longhorn-system
-$ helm install longhorn ./longhorn/chart/ --namespace longhorn-system --values kubeadm-home/longhorn-values.yaml
-```
-
-#### 11c - Accessing the UI
-
-Once all pods are running, you can access the UI by using `kubectl port-forward`:
-```
-$ kubectl -n longhorn-system port-forward service/longhorn-frontend 8080:80
-```
-
-Now you can access the Longhorn UI at [localhost:8080](http://localhost:8080).
 
 ## Upgrading the Cluster
 

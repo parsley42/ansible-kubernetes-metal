@@ -212,23 +212,6 @@
       url: https://github.com/projectcalico/calicoctl/releases/download/v3.17.1/calicoctl
       dest: /usr/local/bin/calicoctl
       mode: 0755
-  - name: Create metallb.yaml
-    copy:
-      dest: /home/metallb.yaml
-      mode: 0644
-      content: |
-        apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          namespace: metallb-system
-          name: config
-        data:
-          config: |
-            address-pools:
-            - name: default
-              protocol: layer2
-              addresses:
-              - {{ metal_range_start }}-{{ metal_range_end }}
 
   - name: Install HA Packages
     dnf:
