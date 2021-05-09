@@ -1,5 +1,5 @@
---- calico.j2	2021-01-22 10:30:00.391909911 -0500
-+++ calico.j2	2021-01-22 10:29:50.239818218 -0500
+--- calico.j2	2021-05-09 11:47:50.092447401 -0400
++++ calico.j2	2021-05-09 11:44:57.077840242 -0400
 @@ -15,7 +15,7 @@
    # Configure the MTU to use for workload interfaces and tunnels.
    # By default, MTU is auto-detected, and explicitly setting this field should not be required.
@@ -9,7 +9,7 @@
  
    # The CNI network configuration to install on each node. The special
    # values in this config will be automatically populated.
-@@ -3616,7 +3616,7 @@
+@@ -3657,7 +3657,7 @@
                value: "autodetect"
              # Enable IPIP
              - name: CALICO_IPV4POOL_IPIP
@@ -18,8 +18,8 @@
              # Enable or Disable VXLAN on the default IP pool.
              - name: CALICO_IPV4POOL_VXLAN
                value: "Never"
-@@ -3657,6 +3657,9 @@
-               value: "info"
+@@ -3695,6 +3695,9 @@
+               value: "false"
              - name: FELIX_HEALTHENABLED
                value: "true"
 +            # Additional configuration for CentOS 8 using Netfilter
