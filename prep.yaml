@@ -120,14 +120,6 @@
       - kubectl-{{ kubectl_rpm_version }}
       - bash-completion
 
-  # /dev/fuse is required for building containers inside
-  # containers using buildah/podman.
-  - name: Add /dev/fuse to container devices
-    lineinfile:
-      path: /etc/crio/crio.conf
-      line: '  "/dev/fuse",'
-      regexp: '/dev/fuse'
-      insertafter: "^additional_devices"
   # Note: this doesn't appear to be in the official docs at kubernetes.io,
   # but is referenced in the cri-o docs and elsewhere.
   - name: Make sure kubelet has args for cri-o
@@ -155,13 +147,6 @@
       path: /etc/systemd/system/crio.service.d
       state: directory
       mode: 0755
-  - name: Set up start dependency
-    copy:
-      dest: /etc/systemd/system/crio.service.d/override.conf
-      mode: 0644
-      content: |
-        [Unit]
-        Before=kubelet.service
 
   - name: Add IP for master/HA float to /etc/hosts
     lineinfile:
